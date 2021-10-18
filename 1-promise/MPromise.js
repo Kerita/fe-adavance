@@ -8,18 +8,16 @@ class MPromise {
   REJECTED_CALLBACK_LIST = [];
 
   constructor(fn) {
-    this.status = PENDING;
     this.value = null;
     this.reason = null;
 
-    try {
+    if (this.isFunction(fn)) {
       fn(this.resolve.bind(this), this.reject.bind(this));
-    } catch (e) {
-      this.reject(e);
+    } else {
+      throw new Error(`MPromise resolver ${fn} is not a function`);
     }
   }
 
-  // #region status 定义
   get status() {
     return this._status;
   }
@@ -27,78 +25,58 @@ class MPromise {
   set status(newStatus) {
     this._status = newStatus;
 
-    switch (newStatus) {
-      case FULFILLED: {
-        this.FULFILLED_CALLBACK_LIST.forEach((callback) => {
-          callback(this.value);
-        });
-        break;
-      }
+    if (newStatus === FULFILLED) {
+      this.FULFILLED_CALLBACK_LIST.forEach((callback) => {
+        callback(this.value);
+      });
+    }
 
-      case REJECTED: {
-        this.REJECTED_CALLBACK_LIST.forEach((callback) => {
-          callback(this.reason);
-        });
-        break;
-      }
+    if (newStatus) {
+      this.REJECTED_CALLBACK_LIST.forEach((callback) => {
+        callback(this.reason);
+      });
     }
   }
 
-  // #endregion
-
-  // #region resolve & reject
-  resolve(value) {
-    if (this.status === PENDING) {
-      this.value = value;
-      this.status = FULFILLED;
-    }
-  }
-
-  reject(reason) {
-    if (this.status === PENDING) {
-      this.reason = reason;
-      this.status = REJECTED;
-    }
-  }
-
-  // #endregion
-
-  // region isFunction 定义
   isFunction(param) {
     return typeof param === "function";
   }
-  // endregion
 
-  // #region then 定义
+  resolve(value) {
+    this.value = value;
+    this.status = FULFILLED;
+  }
+
+  reject(reason) {
+    this.reason = reason;
+    this.status = REJECTED;
+  }
+
   then(onFulfilled, onRejected) {
-    const fulfilledFn = this.isFunction(onFulfilled)
-      ? onFulfilled
-      : (value) => value;
-    const rejectedFn = this.isFunction(onRejected)
-      ? onRejected
-      : (reason) => reason;
+    const isOnFulfilledFunction = this.isFunction(onFulfilled);
+    const isOnRejectedFunction = this.isFunction(onRejected);
 
-    const fulfilledFnWithCatch = (resolve, reject, newPromise) => {
+    const onFulfilledFnWithCatch = (resolve, reject, newPromise) => {
       try {
-        if (!this.isFunction(fulfilledFn)) {
-          resolve(this.value);
-        } else {
+        if (isOnFulfilledFunction) {
           const x = onFulfilled(this.value);
           this.resolvePromise(newPromise, x, resolve, reject);
+        } else {
+          resolve(this.value);
         }
       } catch (e) {
         reject(e);
       }
     };
 
-    const rejectedFnWithCatch = (resolve, reject) => {
+    const onRejectedFnWithCatch = (resolve, reject) => {
       try {
-        if (!this.isFunction(onRejected)) {
-          reject(this.reason);
-        } else {
+        if (isOnRejectedFunction) {
           const x = onRejected(this.reason);
 
           this.resolvePromise(newPromise, x, resolve, reject);
+        } else {
+          reject(this.reason);
         }
       } catch (e) {
         reject(e);
@@ -108,116 +86,79 @@ class MPromise {
     switch (this.status) {
       case FULFILLED: {
         const newPromise = new MPromise((resolve, reject) => {
-          fulfilledFnWithCatch(resolve, reject, newPromise);
+          onFulfilledFnWithCatch(resolve, reject, newPromise);
         });
-
         return newPromise;
       }
 
       case REJECTED: {
         const newPromise = new MPromise((resolve, reject) => {
-          rejectedFnWithCatch(resolve, reject, newPromise);
+          onRejectedFnWithCatch(resolve, reject, newPromise);
         });
-
         return newPromise;
       }
 
       case PENDING: {
         const newPromise = new MPromise((resolve, reject) => {
           this.FULFILLED_CALLBACK_LIST.push(() => {
-            fulfilledFnWithCatch(resolve, reject, newPromise);
+            onFulfilledFnWithCatch(resolve, reject, newPromise);
           });
-
           this.REJECTED_CALLBACK_LIST.push(() => {
-            this.REJECTED_CALLBACK_LIST(resolve, reject, newPromise);
+            onRejectedFnWithCatch(resolve, reject, newPromise);
           });
         });
 
         return newPromise;
       }
     }
+
+    if (isOnFulfilledFunction) {
+    } else {
+    }
+
+    if (isOnRejectedFunction) {
+    } else {
+    }
   }
 
-  // endregion then 定义
-
-  // region resolvePromise 函数定义
   resolvePromise(newPromise, x, resolve, reject) {
     if (newPromise === x) {
-      return reject(new TypeError("xxxxxx"));
+      return new Error("onFulfilled return value error");
     }
 
     if (x instanceof MPromise) {
       x.then((y) => {
         this.resolvePromise(newPromise, y, resolve, reject);
       }, reject);
-    } else if (typeof x === "object" || this.isFunction(x)) {
-      if (x === null) {
-        return resolve(x);
-      }
-
-      let then = null;
-
-      try {
-        then = x.then;
-      } catch (error) {
-        return reject(error);
-      }
-
-      if (this.isFunction(then)) {
-        let called = false;
-
-        try {
-          then.call(x, (y) => {
-            if (called) {
-              return;
-            }
-            called = true;
-            this.resolvePromise(newPromise, y, resolve, (r) => {
-              if (called) {
-                return;
-              }
-              called = true;
-              reject(r);
-            });
-          });
-        } catch (error) {
-          if (called) {
-            return;
-          }
-          called = true;
-          reject(error);
-        }
-      } else {
-        resolve(x);
-      }
     } else {
       resolve(x);
     }
   }
 
-  // endregion
-
   catch(onRejected) {
     this.then(null, onRejected);
   }
+
+  static all() {}
+
+  static race() {}
+
+  static resolve() {}
+
+  static reject() {}
 }
 
 const promise = new MPromise((resolve, reject) => {
   setTimeout(() => {
-    resolve("value");
+    reject("reject");
   }, 100);
-});
-
-console.log("kerita log:", promise, "promise");
-
-promise
+})
   .then((value) => {
-    console.log("then1", value);
+    console.log("kerita log:then1", value, "value");
   })
-  .catch((reason) => {
-    console.log("catch1", reason);
+  .then((value) => {
+    console.log("kerita log:then2", value, "value");
+  })
+  .catch((error) => {
+    console.log("kerita log:", error, "error");
   });
-
-setTimeout(() => {
-  console.log("kerita log:", promise, "promise");
-}, 200);

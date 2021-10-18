@@ -12,3 +12,5 @@ promise.then(1, 2).then(
     console.log("catch 2", error, "error");
   }
 );
+
+new Promise(1);
